@@ -127,7 +127,7 @@ router.get("/:id/address", function(request, response) {
 		if (err) {
 			return response.status(500).json(err);
 		}
-		else if (customer[0]) {
+		else if (customer && customer[0]) {
 			addressCollection.find({
 				address_id: Number(customer[0].address_id)
 			}, {}, function(err, address) {
@@ -228,7 +228,7 @@ function getFilterString(query) {
 
 	var arr = query.split("$or");
 
-}
+};
 
 function UpdateDB(collection, update, res, id) {
 	console.log(update);
@@ -257,13 +257,13 @@ function UpdateDB(collection, update, res, id) {
 
 	return;
 	//return response.json(convert.toCustomerDB(request.body));
-}
+};
 
 //Delete one customer
 router.delete('/:CustId', function(req, res) {
 	var db = req.db;
 	var collection = db.get('customer');
-	var id = parseInt(req.params.CustId);
+	var id = Number(req.params.CustId);
 
 	collection.remove({
 		customer_id: id
@@ -278,58 +278,58 @@ router.delete('/:CustId', function(req, res) {
 
 //Create one customer
 router.post('/', function(req, res) {
-	var db = req.db;
-	var addCollection = db.get('address');
-	var custCollection = db.get('customer');
-	var countryCollection = db.get('country');
-	var cityCollection = db.get('city');
-	//Find address
-	countryCollection.find({
-		country: req.body.data.address.city.country
+			var db = req.db;
+			var addCollection = db.get('address');
+			var custCollection = db.get('customer');
+			var countryCollection = db.get('country');
+			var cityCollection = db.get('city');
+			//Find address
+			countryCollection.find({
+					country: req.body.data.address.city.country
+				}, {},
 
-	}, {}, function(e, data) {
+				function(e, data) {
 
-	}, function(err, habit) {
-		if (err) {
-			res.send(err);
-		}
-		else {
-			//Find city
-			cityCollection.find({
-				address: Number(req.body.address_id),
-				address2: '',
-				district
-
-
-			}, {}, function(e, data) {
-
-			}, function(err, habit) {
-				if (err) {
-					res.send(err);
-				}
-				else {
-					//Find country
-					addCollection.find({
-						address: Number(req.body.address_id),
-						address2: ''
-
-					}, {}, function(e, data) {
-
-					}, function(err, habit) {
+					}, function (err, habit) {
 						if (err) {
 							res.send(err);
 						}
 						else {
-							//Insert new record
-							req.body.customer_id = 2; //TODO: Add auto-increment logic.
-							newCutomerData = convert.toCustomerDB(req.body);
-							custCollection.save(newCustomerData);
+							//Find city
+							cityCollection.find({
+								address: Number(req.body.address_id),
+								address2: '',
+								district: ''
+							}, {}, function(e, data) {
+
+							}, function(err, habit) {
+								if (err) {
+									res.send(err);
+								}
+								else {
+									//Find country
+									addCollection.find({
+										address: Number(req.body.address_id),
+										address2: ''
+
+									}, {}, function(e, data) {
+
+									}, function(err, habit) {
+										if (err) {
+											res.send(err);
+										}
+										else {
+											//Insert new record
+											req.body.customer_id = 2; //TODO: Add auto-increment logic.
+											newCutomerData = convert.toCustomerDB(req.body);
+											custCollection.save(newCustomerData);
+										}
+									});
+								}
+							});
 						}
 					});
-				}
-			});
-		}
-	});
 });
 
-module.exports = router;
+
+		module.exports = router;

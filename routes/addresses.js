@@ -1,5 +1,6 @@
 var express = require('express');
 var router = express.Router();
+var convert = require("./../utilities/converters.js");
 
 // middleware specific to this router
 router.use(function timeLog(req, res, next) {
@@ -7,6 +8,12 @@ router.use(function timeLog(req, res, next) {
     next();
 });
 
+/* Format of MongoDB storage for addresses
+    { "_id" : ObjectId("54d7db0d89dc3223d9000014"), "address_id" : 20, "address" : "
+360 Toulouse Parkway", "address2" : "", "district" : "England", "city_id" : 495,
+ "postal_code" : "54308", "phone" : "949312333307", "last_update" : ISODate("200
+6-02-15T09:45:30Z") }
+*/
 
 /* Get All Addresses. */
 router.get('/', function(req, res) {
@@ -28,7 +35,7 @@ router.get('/', function(req, res) {
 });
 
 
-router.put('/:id', function(req, res) {
+router.put('/:AddressId', function(req, res) {
     var db = req.db;
     var collection = db.get('address');
     //console.log("Inside put");
@@ -37,7 +44,7 @@ router.put('/:id', function(req, res) {
         return res.send(400);
     } // 6
 
-    var id = req.params.id;
+    var id = req.params.AddressId;
     console.log(id);
 
     if (!Number(id)) {
@@ -46,14 +53,6 @@ router.put('/:id', function(req, res) {
 
     //console.log('Helllo Worlld...!!!');
     //console.log(req.body.param2);
-
-
-    /* Format of MongoDB storage for addresses
-    { "_id" : ObjectId("54d7db0d89dc3223d9000014"), "address_id" : 20, "address" : "
-360 Toulouse Parkway", "address2" : "", "district" : "England", "city_id" : 495,
- "postal_code" : "54308", "phone" : "949312333307", "last_update" : ISODate("200
-6-02-15T09:45:30Z") }
-	*/
 
     //Get the other params from the query. Should get a list of query parameters that we will take
     //address, address2, district, postal code, city_id, phone, last_update(auto generated)
@@ -73,42 +72,31 @@ router.put('/:id', function(req, res) {
 
         //console.log("Before update");
         var update = {};
-        if (req.body.addresses.data.address != undefined)
-            update['address'] = req.body.addresses.data.address;
-        if (req.body.addresses.data.address2 != undefined)
-            update['address2'] = req.body.addresses.data.address2;
-        if (req.body.addresses.data.district != undefined)
-            update['district'] = req.body.addresses.data.district;
-        if (req.body.addresses.data.postal_code != undefined)
-            update['postal_code'] = req.body.addresses.data.postal_code;
-        if (req.body.addresses.data.phone != undefined)
-            update['phone'] = req.body.addresses.data.phone;
+        if (req.body.addresses[0].data.address != undefined)
+            update['address'] = req.body.addresses[0].data.address;
+        if (req.body.addresses[0].data.address2 != undefined)
+            update['address2'] = req.body.addresses[0].data.address2;
+        if (req.body.addresses[0].data.district != undefined)
+            update['district'] = req.body.addresses[0].data.district;
+        if (req.body.addresses[0].data.postal_code != undefined)
+            update['postal_code'] = req.body.addresses[0].data.postal_code;
+        if (req.body.addresses[0].data.phone != undefined)
+            update['phone'] = req.body.addresses[0].data.phone;
         update['last_update'] = new Date().toISOString();
-        if (req.body.addresses.data.city != undefined) {
+        if (req.body.addresses[0].data.country != undefined) {
+            //In case city_id not found, check for country_id and update its value, else update other values
+            UpdateCountryCollection(req.body.addresses[0].data.country, collection, db, res);
+            //update['country'] = country_id;
+        }
+
+        if (req.body.addresses[0].data.city != undefined) {
             //Continue updating only if the city mentioned is valid in 'city' collection 
-            var cityColl = db.get('city');
-            cityColl.find({
-                city: req.body.addresses.data.city
-            }, function(err, city_res) {
-                if (err) {
-                    return res.send(404, err);
-                }
-                console.log("Found the object: ", city_res);
-                if (city_res.city_id == undefined) {
-                    UpdateCityCollection(collection, id, cityColl, res);
-                }
-                else {
-                    update['city_id'] = city_res.city_id;
-                    UpdateDB(collection, update, res, id);
-                    res.send("Update succeeded");
-                }
-            });
+            var city_id = UpdateCityCollection(req.body.addresses[0].data.city, country_id, db, res);
+            update['city'] = city_id;
         }
-        else //In case city_id not found, update other values
-        {
-            UpdateDB(collection, update, res, id);
-            res.send("Update succeeded");
-        }
+
+        UpdateDB(collection, update, res, id);
+        res.send("Update succeeded");
     });
 });
 
@@ -140,40 +128,91 @@ function UpdateDB(collection, update, res, id) {
     return;
 }
 
-function UpdateCityCollection(collection, id, cityColl, res) {
-    var cityUpdate = {
-        city: res.body.addresses.data.city
-    }
-    console.log(cityUpdate);
-
-    var options = {
-            "limit": 1,
-            "sort": ['city_id', 'desc']
+function UpdateCityCollection(city, country_id, db, res) {
+    var cityColl = db.get('city');
+    cityColl.find({
+        city: city
+    }, function(err, city_res) {
+        if (err) {
+            return res.send(404, err);
         }
-        //Find the next id for city and update the new city there
-    cityColl.find({}, options,
-        function(err, city_res) {
-            if (err) {
-                return res.send(404, err);
+        console.log("Found the city object: ", city_res);
+
+        if (city_res.city_id != undefined) {
+            return city_res.city_id;
+        }
+        else {
+            var cityUpdate = {
+                city: city,
+                country_id: country_id
             }
 
-            cityColl.update({
-                    city_id: Number(city_res.city_id + 1)
-                }, {
-                    $set: cityUpdate
-                },
-                function(err) {
+            var options = {
+                "limit": 1,
+                "sort": ['city_id', 'desc']
+            }
+
+            //Find the next id for city and update the new city there
+            cityColl.find({}, options,
+                function(err, city_res2) {
                     if (err) {
-                        return res.send(500, err);
+                        return res.send(404, err);
                     }
 
-                    update['city_id'] = city_res.city_id;
-                    UpdateDB(collection, update, res, id);
-                    res.send("Update succeeded");
+                    var city_id = city_res2.city_id + 1;
+                    cityUpdate['city_id'] = city_id;
+                    cityUpdate['last_update'] = new Date().toISOString();
+                    var newCityData = convert.toCityDB(cityUpdate); //should check how to add _id field
+                    cityColl.save(newCityData);
+                    return city_id;
                 });
-        });
-    return;
+        }
+    });
 }
+
+function UpdateCountryCollection(country, addrColl, db, res) {
+    var countryColl = db.get('country');
+
+    countryColl.find({
+        country: country
+    }, function(err, country_res) {
+        if (err) {
+            return res.send(404, err);
+        }
+        console.log("Found the object: ", country_res);
+
+        //Update the country collection
+        if (country_res.country_id == undefined) {
+            var countryUpdate = {
+                country: country
+            }
+            var options = {
+                "limit": 1,
+                "sort": ['country_id', 'desc']
+            }
+
+            //Find the next id for country and update the new country there
+            countryColl.find({}, options,
+                function(err, country_res2) {
+                    if (err) {
+                        return res.send(404, err);
+                    }
+                    var country_id = country_res2.country_id + 1;
+                    countryUpdate['country_id'] = country_id;
+                    countryUpdate['last_update'] = new Date().toISOString();
+                    var newCountryData = convert.toCountryDB(countryUpdate); //should check how to add _id field
+                    countryColl.save(newCountryData);
+                    
+                    update['country_id'] = country_id;
+                    
+                    //Update the city value if present
+                    return country_id;
+                });
+        }
+    });
+}
+
+
 
 //Delete one address
 router.delete('/:AddressId', function(req, res) {
