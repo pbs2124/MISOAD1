@@ -8,10 +8,6 @@ var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
-var mongo = require('mongodb');
-var monk = require('monk');
-var config = require('./config/config.json');
-var db = monk(config.host + '/' + config.dbname);
 
 var index = require('./routes/index');
 var addresses = require('./routes/addresses');
@@ -34,7 +30,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 //Make customerDB accessible to our router
 app.use(function(req,res,next){
-    req.db = db;
     req.DEFAULT_LIMIT = 25;
     req.DEFAULT_OFFSET = 0;
     next();

@@ -1,232 +1,310 @@
 var express = require('express');
 var router = express.Router();
-var convert = require("./../utilities/converters.js");
+var convert = require('./../utilities/converters.js');
+var db = require('./../database/database.js');
+var async = require('async');
 
-// middleware specific to this router
+var customerCollection = db.get('customer');
+var addressCollection = db.get('address');
+var cityCollection = db.get('city');
+var countryCollection = db.get('country');
+
 router.use(function timeLog(req, res, next) {
     console.log('Accessed Addresses URI Page at Time: ', new Date());
     next();
 });
 
-/* Format of MongoDB storage for addresses
-    { "_id" : ObjectId("54d7db0d89dc3223d9000014"), "address_id" : 20, "address" : "
-360 Toulouse Parkway", "address2" : "", "district" : "England", "city_id" : 495,
- "postal_code" : "54308", "phone" : "949312333307", "last_update" : ISODate("200
-6-02-15T09:45:30Z") }
-*/
+// Get the List of all addresses
+router.get('/', function(request, response) {
+    var query = JSON.parse(JSON.stringify(request.query));
+    var limit;
+    var offset;
+    var fields = {};
+    var sort = {};
+    var filter = {};
 
-/* Get All Addresses. */
-router.get('/', function(req, res) {
-    var db = req.db;
-    var collection = db.get('address');
-    collection.find({}, {}, function(e, addr) {
-        res.writeHead(200, {
-            'Content-Type': 'application/json'
-        }); // Sending data via json
-        var str = '[';
-        addr.forEach(function(address) {
-            str = str + '{ "district" : "' + address.district + '"},' + '\n';
-        });
-        str = str.trim();
-        str = str.substring(0, str.length - 1);
-        str = str + ']';
-        res.end(str);
-    });
-});
-
-
-router.put('/:AddressId', function(req, res) {
-    var db = req.db;
-    var collection = db.get('address');
-    //console.log("Inside put");
-
-    if (!req.body) {
-        return res.send(400);
-    } // 6
-
-    var id = req.params.AddressId;
-    console.log(id);
-
-    if (!Number(id)) {
-        return res.send("Invalid query parameters");
+    if (!query.offset || isNaN(query.offset)) {
+        offset = request.DEFAULT_OFFSET;
+    }
+    else {
+        offset = Number(query.offset);
     }
 
-    //console.log('Helllo Worlld...!!!');
-    //console.log(req.body.param2);
+    if (!query.limit || isNaN(query.limit)) {
+        limit = request.DEFAULT_LIMIT;
+    }
+    else {
+        limit = Number(query.limit);
+    }
 
-    //Get the other params from the query. Should get a list of query parameters that we will take
-    //address, address2, district, postal code, city_id, phone, last_update(auto generated)
-    collection.find({
-        address_id: Number(id)
-    }, {}, function(e, data) {
-        if (e) {
-            return res.send(500, e);
-        } // 1, 2
+    if (query.sort) {
+        // If it contains &&, it need to send a error response
+        var res = String(query.sort).trim();
+        var length = res.length;
+        res = res.substr(1, length - 2).split('||');
+        res.forEach(function(element) {
+            var order = 1;
+            if (element.indexOf('-') === 0) {
+                order = -1;
+                element = element.substr(1, element.length - 1);
+            }
+            else {
+                order = 1;
+            }
 
-        console.log("result of findbyid, before data check ", data);
-        if (!data) {
-            console.log("Inside !data");
-            return res.send(404);
-        } // 3
+            if (element.toUpperCase() === 'ADDRESS') {
+                sort.address = order;
+            }
+            if (element.toUpperCase() === 'ADDRESS2') {
+                sort.address2 = order;
+            }
+            if (element.toUpperCase() === 'DISTRICT') {
+                sort.district = order;
+            }
+            if (element.toUpperCase() === 'POSTALCODE' || element.toUpperCase() === 'POSTAL_CODE') {
+                sort.postal_code = order;
+            }
+            if (element.toUpperCase() === 'PHONE') {
+                sort.phone = order;
+            }
+        });
+    }
 
+    if (!sort) {
+        sort = {
+            address_id: 1
+        };
+    }
 
-        //console.log("Before update");
-        var update = {};
-        if (req.body.addresses[0].data.address != undefined)
-            update['address'] = req.body.addresses[0].data.address;
-        if (req.body.addresses[0].data.address2 != undefined)
-            update['address2'] = req.body.addresses[0].data.address2;
-        if (req.body.addresses[0].data.district != undefined)
-            update['district'] = req.body.addresses[0].data.district;
-        if (req.body.addresses[0].data.postal_code != undefined)
-            update['postal_code'] = req.body.addresses[0].data.postal_code;
-        if (req.body.addresses[0].data.phone != undefined)
-            update['phone'] = req.body.addresses[0].data.phone;
-        update['last_update'] = new Date().toISOString();
-        if (req.body.addresses[0].data.country != undefined) {
-            //In case city_id not found, check for country_id and update its value, else update other values
-            UpdateCountryCollection(req.body.addresses[0].data.country, collection, db, res);
-            //update['country'] = country_id;
+    if (query.filter) {
+        console.log(query.filter);
+    }
+
+    if (query.fields) {
+        var order = 1;
+        fields.address_id = order;
+        var res = String(query.fields).trim();
+        var length = res.length;
+        res = res.substr(1, length - 2).split('||');
+        res.forEach(function(element) {
+            if (element.toUpperCase() === 'ADDRESS') {
+                fields.address = order;
+            }
+            if (element.toUpperCase() === 'ADDRESS2') {
+                fields.address2 = order;
+            }
+            if (element.toUpperCase() === 'DISTRICT') {
+                fields.district = order;
+            }
+            if (element.toUpperCase() === 'CITY' || element.toUpperCase() === 'CITY_ID') {
+                fields.city_id = order;
+            }
+            if (element.toUpperCase() === 'POSTALCODE' || element.toUpperCase() === 'POSTAL_CODE') {
+                fields.postal_code = order;
+            }
+            if (element.toUpperCase() === 'PHONE') {
+                fields.phone = order;
+            }
+        });
+    }
+
+    var count;
+    async.waterfall(
+        [
+            function(callback) {
+                addressCollection.count({}, callback);
+            },
+            function(addressCount, callback) {
+                count = addressCount;
+                var optionalParam = {
+                    limit: limit,
+                    skip: offset,
+                    sort: sort,
+                    fields: fields
+                }
+                addressCollection.find({}, optionalParam, callback);
+            }
+        ],
+        function(err, results) {
+            if (err) {
+                return response.status(500).json(err);
+            }
+            else if (results) {
+                return response.json(convert.fromAddressDB(results, true, offset, limit, count, query.sort, query.filter, query.fields));
+            }
+            else {
+                return response.status(404).json(404);
+            }
         }
+    );
+});
 
-        if (req.body.addresses[0].data.city != undefined) {
-            //Continue updating only if the city mentioned is valid in 'city' collection 
-            var city_id = UpdateCityCollection(req.body.addresses[0].data.city, country_id, db, res);
-            update['city'] = city_id;
+// GET, PUT, DELETE, POST of a Particular Address
+router.get('/:id', function(request, response) {
+    addressCollection.find({
+        address_id: Number(request.params.id)
+    }, {}, function(err, address) {
+        if (err) {
+            return response.status(500).json(err);
         }
-
-        UpdateDB(collection, update, res, id);
-        res.send("Update succeeded");
+        else if (address) {
+            return response.json(convert.fromAddressDB(address));
+        }
+        else {
+            return response.status(404).json(404);
+        }
     });
 });
 
-function UpdateDB(collection, update, res, id) {
-    console.log(update);
+router.put('/:id', function(request, response) {
 
-    collection.update({
-            address_id: Number(id)
+    if (!request.body) {
+        console.error('No Body...!!!');
+        return response.status(400).json(400);
+    }
+
+    var address = convert.toCountryDB(request.body);
+
+    if (address && address[0] && address[0]._id && address[0].address_id && !isNaN(address[0].address_id) && !isNaN(request.params.id) && Number(address[0].address_id) === Number(request.params.id)) {
+
+        var temp = {};
+
+        if (typeof(address[0].address) != undefined) temp.address = address[0].address;
+        if (typeof(address[0].address2) != undefined) temp.address2 = address[0].address2;
+        if (typeof(address[0].district) != undefined) temp.district = address[0].district;
+        if (typeof(address[0].city_id) != undefined) temp.city_id = address[0].city_id;
+        if (typeof(address[0].postal_code) != undefined) temp.postal_code = address[0].postal_code;
+        if (typeof(address[0].phone) != undefined) temp.phone = address[0].phone;
+        if (typeof(address[0].last_update) != undefined) temp.last_update = address[0].last_update;
+
+        addressCollection.update({
+            address_id: Number(request.params.id)
         }, {
-            $set: update
-        },
-        function(err) {
+            $set: temp
+        }, function(err) {
             if (err) {
-                return res.send(500, err);
+                return response.status(500).json(err);
             }
-
-            // Now we can get the order back
-            // and see that it's updated
-            collection.find({
-                address_id: Number(id)
-            }, function(err, o) {
-                if (err) {
-                    return res.send(500, err);
-                }
-                console.log("Found the object: ", o);
-            });
+            else {
+                return response.status(204).end();
+            }
         });
+    }
+    else {
+        return response.status(400).json(400);
+    }
+});
 
-    return;
-}
+router.delete('/:id', function(request, response) {
+    if (!isNaN(request.params.id)) {
+        async.waterfall([
+            function(callback) {
+                customerCollection.count({
+                    address_id: Number(request.params.id)
+                }, callback);
+            },
+            function(count, callback) {
+                if (count > 0) {
+                    var err = new Error();
+                    err.status = 403;
+                    err.message = 'Unable to Delete the Address with AddressID: ' + Number(request.params.id) + ', ' + count + ' Customers have this Address as a reference';
+                    return callback(err);
+                }
+                else {
+                    addressCollection.remove({
+                        address_id: Number(request.params.id)
+                    }, callback);
+                }
+            }
+        ], function(err, results) {
+            if (err) {
+                return response.status(err.status || 500).json(err);
+            }
+            else {
+                return response.status(204).end();
+            }
+        });
+    }
+    else {
+        return response.status(400).json(400);
+    }
+});
 
-function UpdateCityCollection(city, country_id, db, res) {
-    var cityColl = db.get('city');
-    cityColl.find({
-        city: city
-    }, function(err, city_res) {
-        if (err) {
-            return res.send(404, err);
+router.get("/:id/city", function(request, response) {
+
+    async.waterfall([
+        function(callback) {
+            addressCollection.find({
+                address_id: Number(request.params.id)
+            }, {}, callback);
+        },
+        function(address, callback) {
+            if (address && address[0]) {
+                cityCollection.find({
+                    city_id: Number(address[0].city_id)
+                }, {}, callback);
+            }
+            else {
+                var err = new Error('Not Found');
+                err.status = 404;
+                return callback(err);
+            }
         }
-        console.log("Found the city object: ", city_res);
-
-        if (city_res.city_id != undefined) {
-            return city_res.city_id;
+    ], function(err, results) {
+        if (err) {
+            return response.status(err.status || 500).json(err);
+        }
+        else if (results) {
+            return response.json(convert.fromCityDB(results));
         }
         else {
-            var cityUpdate = {
-                city: city,
-                country_id: country_id
-            }
-
-            var options = {
-                "limit": 1,
-                "sort": ['city_id', 'desc']
-            }
-
-            //Find the next id for city and update the new city there
-            cityColl.find({}, options,
-                function(err, city_res2) {
-                    if (err) {
-                        return res.send(404, err);
-                    }
-
-                    var city_id = city_res2.city_id + 1;
-                    cityUpdate['city_id'] = city_id;
-                    cityUpdate['last_update'] = new Date().toISOString();
-                    var newCityData = convert.toCityDB(cityUpdate); //should check how to add _id field
-                    cityColl.save(newCityData);
-                    return city_id;
-                });
+            return response.status(404).json(404);
         }
     });
-}
+});
 
-function UpdateCountryCollection(country, addrColl, db, res) {
-    var countryColl = db.get('country');
+router.get("/:id/city/country", function(request, response) {
 
-    countryColl.find({
-        country: country
-    }, function(err, country_res) {
-        if (err) {
-            return res.send(404, err);
-        }
-        console.log("Found the object: ", country_res);
-
-        //Update the country collection
-        if (country_res.country_id == undefined) {
-            var countryUpdate = {
-                country: country
+    async.waterfall([
+        function(callback) {
+            addressCollection.find({
+                address_id: Number(request.params.id)
+            }, {}, callback);
+        },
+        function(address, callback) {
+            if (address && address[0]) {
+                cityCollection.find({
+                    city_id: Number(address[0].city_id)
+                }, {}, callback);
             }
-            var options = {
-                "limit": 1,
-                "sort": ['country_id', 'desc']
+            else {
+                var err = new Error('Not Found');
+                err.status = 404;
+                return callback(err);
             }
-
-            //Find the next id for country and update the new country there
-            countryColl.find({}, options,
-                function(err, country_res2) {
-                    if (err) {
-                        return res.send(404, err);
-                    }
-                    var country_id = country_res2.country_id + 1;
-                    countryUpdate['country_id'] = country_id;
-                    countryUpdate['last_update'] = new Date().toISOString();
-                    var newCountryData = convert.toCountryDB(countryUpdate); //should check how to add _id field
-                    countryColl.save(newCountryData);
-                    
-                    update['country_id'] = country_id;
-                    
-                    //Update the city value if present
-                    return country_id;
-                });
+        },
+        function(city, callback) {
+            if (city && city[0]) {
+                countryCollection.find({
+                    country_id: Number(city[0].country_id)
+                }, {}, callback);
+            }
+            else {
+                var err = new Error('Not Found');
+                err.status = 404;
+                return callback(err);
+            }
         }
-    });
-}
-
-
-
-//Delete one address
-router.delete('/:AddressId', function(req, res) {
-    var db = req.db;
-    var collection = db.get('address');
-    var id = parseInt(req.params.AddressId);
-    collection.remove({
-        address_id: id
-    }, function(err, todo) {
+    ], function(err, results) {
         if (err) {
-            res.end(err);
+            return response.status(err.status || 500).json(err);
         }
-        else
-            res.end("deleted");
+        else if (results) {
+            return response.json(convert.fromCountryDB(results));
+        }
+        else {
+            return response.status(404).json(404);
+        }
     });
 });
 

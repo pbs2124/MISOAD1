@@ -21,4 +21,14 @@ Welcome to your Node.js project on Cloud9 IDE!
 
     $ node app.js
 
-Once the server is running, open the project in the shape of 'https://projectname-username.c9.io/'. As you enter your name, watch the Users list (on the left) update. Once you press Enter or Send, the message is shared with all connected clients.
+Once the server is running, open the project in the shape of 'https://projectname-username.c9.io/'. As you enter your name, watch the Users list (on the left) update. 
+Once you press Enter or Send, the message is shared with all connected clients.
+
+
+## TODO
+
+1)  Add Projection feature to all the GET requests
+2)  Proper Error Handling
+3)  POST Requests for all resources
+4)  PUT for relational resources
+5)  Filter feature for all GET Collection requests

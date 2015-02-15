@@ -1,119 +1,184 @@
 var express = require('express');
-
 var router = express.Router();
+var convert = require('./../utilities/converters.js');
+var db = require('./../database/database.js');
+var async = require('async');
 
+var cityCollection = db.get('city');
+var countryCollection = db.get('country');
 
-/* Get All Cities */
-router.get('/', function(req, res) {
-    var db = req.db;
-    var collection = db.get('country');
-    collection.find({},{},function(e,coun){
-    	  res.writeHead(200, {'Content-Type': 'application/json'}); // Sending data via json
-		  var str='['; 
-		  coun.forEach(function(country) {
-			  str = str + '{ "country" : "' + country.country + '"},' +'\n';
-		  });
-		  str = str.trim();
-		  str = str.substring(0,str.length-1);
-		  str = str + ']';	
-		  res.end(str);
+router.use(function timeLog(req, res, next) {
+    console.log('Accessed Countries URI Page at Time: ', new Date());
+    next();
+});
+
+// Get the List of all countries
+router.get('/', function(request, response) {
+    var query = JSON.parse(JSON.stringify(request.query));
+    var limit;
+    var offset;
+    var sort = {};
+    var filter = {};
+
+    if (!query.offset || isNaN(query.offset)) {
+        offset = request.DEFAULT_OFFSET;
+    }
+    else {
+        offset = Number(query.offset);
+    }
+
+    if (!query.limit || isNaN(query.limit)) {
+        limit = request.DEFAULT_LIMIT;
+    }
+    else {
+        limit = Number(query.limit);
+    }
+
+    if (query.sort) {
+        // If it contains &&, it need to send a error response
+        var res = String(query.sort).trim();
+        var length = res.length;
+        res = res.substr(1, length - 2).split('||');
+        res.forEach(function(element) {
+            var order = 1;
+            if (element.indexOf('-') === 0) {
+                order = -1;
+                element = element.substr(1, element.length - 1);
+            }
+            else {
+                order = 1;
+            }
+
+            if (element.toUpperCase() === 'COUNTRY') {
+                sort.country = order;
+            }
+        });
+    }
+
+    if (!sort) {
+        sort = {
+            country_id: 1
+        };
+    }
+
+    if (query.filter) {
+        console.log(query.filter);
+    }
+
+    var count;
+    async.waterfall(
+        [
+            function(callback) {
+                countryCollection.count({}, callback);
+            },
+            function(countryCount, callback) {
+                count = countryCount;
+                var optionalParam = {
+                    limit: limit,
+                    skip: offset,
+                    sort: sort
+                }
+                countryCollection.find({}, optionalParam, callback);
+            }
+        ],
+        function(err, results) {
+            if (err) {
+                return response.status(500).json(err);
+            }
+            else if (results) {
+                return response.json(convert.fromCountryDB(results, true, offset, limit, count, query.sort, query.filter, query.fields));
+            }
+            else {
+                return response.status(404).json(404);
+            }
+        }
+    );
+});
+
+// GET, PUT, DELETE, POST of a Particular Country
+router.get('/:id', function(request, response) {
+    countryCollection.find({
+        country_id: Number(request.params.id)
+    }, {}, function(err, country) {
+        if (err) {
+            return response.status(500).json(err);
+        }
+        else if (country) {
+            return response.json(convert.fromCountryDB(country));
+        }
+        else {
+            return response.status(404).json(404);
+        }
     });
 });
 
+router.put('/:id', function(request, response) {
 
-/*
-> db.country.find({country_id: 50})
-{ "_id" : ObjectId("54d7db0e89dc3223d90004e5"), "country_id" : 50, "country" : "
-Japan", "last_update" : ISODate("2006-02-15T09:44:00Z") }
-*/
-
-
-router.put('/:id', function(req, res) {
-    var db = req.db;
-    var collection = db.get('address');
-    //console.log("Inside put");
-
-    if(!req.body) { 
-        return res.send(400); 
-    } // 6
-
-    var id = req.params.id;
-    console.log(id);
-    
-    if (!Number(id)) {
-    	return res.send("Invalid query parameters");
+    if (!request.body) {
+        console.error('No Body...!!!');
+        return response.status(400).json(400);
     }
-    	
-    //console.log('Helllo Worlld...!!!');
-    //console.log(req.body.param2);
-    
-    //Get the other params from the query. Should get a list of query parameters that we will take
-    //country, last_update(auto generated)
-    collection.find({country_id: Number(id)}, {},  function(e,data){  
-        if(e) { 
-            return res.send(500, e); 
-        } // 1, 2
 
-        console.log("result of findbyid, before data check ", data);
-        if(!data) { 
-        	console.log("Inside !data");
-            return res.send(404); 
-        } // 3
-        
-        
-        //console.log("Before update");
-        var update = {};
-        if (req.body.country != undefined)
-            update['country'] = req.body.country;
-        update['last_update'] = new Date().toISOString();
+    var country = convert.toCountryDB(request.body);
 
-        UpdateDB(collection, update, res, id);
-        res.send("Update succeeded");
+    if (country && country[0] && country[0]._id && country[0].country_id && !isNaN(country[0].country_id) && !isNaN(request.params.id) && Number(country[0].country_id) === Number(request.params.id)) {
 
-    });
-}); 
+        var temp = {};
 
-function UpdateDB(collection, update, res, id)
-{
-    console.log(update);
+        if (typeof(country[0].country) != undefined) temp.country = country[0].country;
+        if (typeof(country[0].last_update) != undefined) temp.last_update = country[0].last_update;
 
-    collection.update(
-        { country_id: Number(id) },
-        { $set: update },
-        function(err) {
+        countryCollection.update({
+            country_id: Number(request.params.id)
+        }, {
+            $set: temp
+        }, function(err) {
             if (err) {
-                return res.send(500, err);
+                return response.status(500).json(err);
             }
-
-            // Now we can get the order back
-            // and see that it's updated
-            collection.find({
-                country_id: Number(id)
-            }, function(err, o) {
-                if (err) {
-                    return res.send(500, err);
-                }
-                console.log("Found the object: ", o);
-            });
+            else {
+                return response.status(204).end();
+            }
         });
+    }
+    else {
+        return response.status(400).json(400);
+    }
+});
 
-        return;
-}
-
-//Delete one country
-router.delete('/:CountryId', function(req, res){
-    var db = req.db;
-    var collection = db.get('country');
-    var id = parseInt(req.params.CountryId);
-    collection.remove({
-        country_id : id
-    }, function(err, todo){
-        if(err){
-            res.end(err);
-        }
-        else
-        	res.end("deleted");
-    });
+router.delete('/:id', function(request, response) {
+    if (!isNaN(request.params.id)) {
+        async.waterfall([
+            function(callback) {
+                cityCollection.count({
+                    country_id: Number(request.params.id)
+                }, callback);
+            },
+            function(count, callback) {
+                if (count > 0) {
+                    var err = new Error();
+                    err.status = 403;
+                    err.message = 'Unable to Delete the Country with CountryID: ' + Number(request.params.id) + ', ' + count + ' cities have this country as a reference';
+                    return callback(err);
+                }
+                else {
+                    countryCollection.remove({
+                        country_id: Number(request.params.id)
+                    }, callback);
+                }
+            }
+        ], function(err, results) {
+            if (err) {
+                return response.status(err.status || 500).json(err);
+            }
+            else {
+                return response.status(204).end();
+            }
+        });
+    }
+    else {
+        return response.status(400).json(400);
+    }
 });
 
 module.exports = router;
